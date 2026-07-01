@@ -1,12 +1,14 @@
 /**
  * @file    stats.h
- * @brief   流量统计模块接口定义 (Day2 空壳版本)
+ * @brief   流量统计模块接口定义 (Day3 哈希表版本)
  *
- * 本版本为统计模块初始骨架，仅实现协议维度的基本计数与打印。
+ * Day3 更新: 引入哈希表数据结构，支持按源 IP 地址聚合统计。
+ *   - 使用链表法解决哈希冲突
+ *   - 哈希表大小 STATS_HASH_SIZE 在 packet.h 中定义
+ *
  * 后续迭代计划:
- *   - Day3: 改用哈希表存储 IP 维度统计
  *   - Day4: 完善按协议类型统计
- *   - Day5: 按源/目的 IP 统计
+ *   - Day5: 按源/目的 IP 分别统计
  *   - Day7: 时间维度统计 + 每秒刷新 + 格式化输出
  */
 
@@ -32,14 +34,27 @@ typedef struct {
 } proto_stats_t;
 
 /**
+ * @brief IP 统计哈希表节点 (链表法解决冲突)
+ *
+ * 每个 IP 地址对应一个节点，记录该 IP 的包数和字节数。
+ * 新节点插入到链表头部 (头插法)。
+ */
+typedef struct ip_stats_node {
+    char     ip_addr[IP_STR_LEN];    /* IP 地址字符串 */
+    uint64_t packet_count;           /* 包数 */
+    uint64_t byte_count;             /* 字节数 */
+    struct ip_stats_node *next;      /* 链表下一节点 */
+} ip_stats_node_t;
+
+/**
  * @brief 统计上下文
  *
- * Day2 版本仅包含协议维度统计和起始时间。
- * Day3 起将增加 IP 哈希表等字段。
+ * Day3 版本增加 IP 哈希表，支持按源 IP 地址聚合统计。
  */
 typedef struct {
-    proto_stats_t  proto_stats;   /* 协议统计 */
-    struct timeval start_time;    /* 统计开始时间 */
+    proto_stats_t     proto_stats;                 /* 协议统计 */
+    ip_stats_node_t  *ip_table[STATS_HASH_SIZE];   /* IP 统计哈希表 */
+    struct timeval     start_time;                  /* 统计开始时间 */
 } stats_ctx_t;
 
 /**
@@ -50,6 +65,9 @@ void stats_init(stats_ctx_t *ctx);
 
 /**
  * @brief 更新统计 (在数据包回调中调用)
+ *
+ * Day3 版本在 Day2 协议维度基础上，增加按源 IP 的哈希表聚合统计。
+ *
  * @param ctx 统计上下文
  * @param pkt 解析后的数据包
  */
@@ -57,12 +75,22 @@ void stats_update(stats_ctx_t *ctx, const packet_info_t *pkt);
 
 /**
  * @brief 打印统计结果 (抓包结束时调用)
+ *
+ * Day3 版本增加 IP 地址维度统计输出。
+ *
  * @param ctx 统计上下文
  */
 void stats_print(const stats_ctx_t *ctx);
 
 /**
- * @brief 销毁统计上下文，释放内存
+ * @brief 获取哈希表中的 IP 统计节点数
+ * @param ctx 统计上下文
+ * @return 不同 IP 地址数量
+ */
+int stats_get_ip_count(const stats_ctx_t *ctx);
+
+/**
+ * @brief 销毁统计上下文，释放哈希表内存
  * @param ctx 统计上下文
  */
 void stats_destroy(stats_ctx_t *ctx);

@@ -1,21 +1,42 @@
 /**
  * @file    stats.c
- * @brief   流量统计实现 (Day2 空壳版本)
+ * @brief   流量统计实现 (Day3 哈希表版本)
  *
- * 本版本为统计模块初始骨架:
- *   - stats_init:    清零 + 记录起始时间
- *   - stats_update:  仅按协议类型计数 (无 IP 哈希表)
- *   - stats_print:   打印基本协议分布
- *   - stats_destroy: 空实现 (Day2 无动态内存分配)
+ * Day3 更新: 引入哈希表按源 IP 地址聚合统计
+ *   - 使用 djb2 字符串哈希函数 (hash × 33 + c)
+ *   - 链表法解决冲突，头插法插入新节点
+ *   - stats_print 增加 IP 地址维度统计输出
+ *   - stats_destroy 释放哈希表所有节点的内存
  *
  * 后续迭代:
- *   - Day3: 引入哈希表按 IP 聚合
+ *   - Day5: 按源/目的 IP 分别统计
  *   - Day7: 增加时间维度 + 每秒刷新
+ *
+ * 参考思路: mmahdi98/traffic_analyser (哈希表流聚合)
  */
 
 #include "stats.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
+/**
+ * @brief 简单字符串哈希函数 (djb2 算法)
+ *
+ * 将 IP 地址字符串映射到 [0, STATS_HASH_SIZE) 范围。
+ * 哈希公式: hash = hash × 33 + c
+ *
+ * @param ip_str IP 地址字符串
+ * @return 哈希值 (0 ~ STATS_HASH_SIZE-1)
+ */
+static unsigned int hash_ip(const char *ip_str)
+{
+    unsigned int hash = 5381;
+    while (*ip_str) {
+        hash = ((hash << 5) + hash) + *ip_str++;  /* hash * 33 + c */
+    }
+    return hash % STATS_HASH_SIZE;
+}
 
 void stats_init(stats_ctx_t *ctx)
 {
@@ -50,7 +71,49 @@ void stats_update(stats_ctx_t *ctx, const packet_info_t *pkt)
         }
     }
 
-    /* TODO: Day3 起增加 IP 维度哈希表统计 */
+    /* 更新 IP 维度统计 (按源 IP 哈希聚合) */
+    if (pkt->src_ip[0] != '\0') {
+        unsigned int idx = hash_ip(pkt->src_ip);
+        ip_stats_node_t *node = ctx->ip_table[idx];
+
+        /* 查找是否已存在该 IP */
+        while (node != NULL) {
+            if (strcmp(node->ip_addr, pkt->src_ip) == 0) {
+                node->packet_count++;
+                node->byte_count += pkt->cap_len;
+                break;
+            }
+            node = node->next;
+        }
+
+        /* 不存在则新建节点 (头插法) */
+        if (node == NULL) {
+            node = (ip_stats_node_t *)malloc(sizeof(ip_stats_node_t));
+            if (node == NULL) return;
+            strncpy(node->ip_addr, pkt->src_ip, IP_STR_LEN - 1);
+            node->ip_addr[IP_STR_LEN - 1] = '\0';
+            node->packet_count = 1;
+            node->byte_count = pkt->cap_len;
+            node->next = ctx->ip_table[idx];
+            ctx->ip_table[idx] = node;
+        }
+    }
+
+    /* TODO: Day5 起增加按目的 IP 统计 */
+}
+
+int stats_get_ip_count(const stats_ctx_t *ctx)
+{
+    if (ctx == NULL) return 0;
+    int count = 0;
+    for (int i = 0; i < STATS_HASH_SIZE; i++) {
+        ip_stats_node_t *node = ctx->ip_table[i];
+        while (node != NULL) {
+            count++;
+            node = node->next;
+        }
+    }
+    return count;
 }
 
 void stats_print(const stats_ctx_t *ctx)
@@ -85,15 +148,39 @@ void stats_print(const stats_ctx_t *ctx)
     printf("  TCP:      %lu\n", (unsigned long)ctx->proto_stats.tcp_count);
     printf("  UDP:      %lu\n", (unsigned long)ctx->proto_stats.udp_count);
     printf("  ICMP:     %lu\n", (unsigned long)ctx->proto_stats.icmp_count);
+
+    /* IP 地址维度统计 (Day3 新增) */
+    printf("--------------------------------------------\n");
+    printf("IP地址统计 (共 %d 个不同地址):\n", stats_get_ip_count(ctx));
+    printf("  %-46s %10s %12s\n", "IP地址", "包数", "字节数");
+
+    for (int i = 0; i < STATS_HASH_SIZE; i++) {
+        ip_stats_node_t *node = ctx->ip_table[i];
+        while (node != NULL) {
+            printf("  %-46s %10lu %12lu\n",
+                   node->ip_addr,
+                   (unsigned long)node->packet_count,
+                   (unsigned long)node->byte_count);
+            node = node->next;
+        }
+    }
     printf("============================================\n\n");
 
-    /* TODO: Day3 起增加 IP 地址维度统计输出 */
+    /* TODO: Day7 起增加时间维度统计输出 */
 }
 
 void stats_destroy(stats_ctx_t *ctx)
 {
     if (ctx == NULL) return;
 
-    /* Day2 版本无动态内存分配，销毁为空操作 */
-    /* TODO: Day3 起释放 IP 哈希表内存 */
+    /* 遍历哈希表，释放所有 IP 统计节点 */
+    for (int i = 0; i < STATS_HASH_SIZE; i++) {
+        ip_stats_node_t *node = ctx->ip_table[i];
+        while (node != NULL) {
+            ip_stats_node_t *tmp = node;
+            node = node->next;
+            free(tmp);
+        }
+        ctx->ip_table[i] = NULL;
+    }
 }
