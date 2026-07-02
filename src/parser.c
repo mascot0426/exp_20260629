@@ -114,6 +114,17 @@ int parse_tcp(const uint8_t *packet, packet_info_t *pkt)
     return size_tcp;
 }
 
+/* ===== 第三层: UDP头部解析 ===== */
+int parse_udp(const uint8_t *packet, packet_info_t *pkt)
+{
+    const sniff_udp_t *udp = (const sniff_udp_t *)packet;
+
+    pkt->src_port = ntohs(udp->uh_sport);
+    pkt->dst_port = ntohs(udp->uh_dport);
+
+    return 8; /* UDP头固定8字节 */
+}
+
 /* ===== 主入口: 逐层解析数据包 ===== */
 void parse_packet(const uint8_t *packet, uint32_t cap_len,
                   uint32_t orig_len, struct timeval ts,
@@ -150,6 +161,16 @@ void parse_packet(const uint8_t *packet, uint32_t cap_len,
                     snprintf(pkt->proto_name, PROTO_NAME_LEN, "TCP");
                     const uint8_t *payload = l4 + size_tcp;
                     uint32_t payload_len = cap_len - SIZE_ETHERNET - size_ip - size_tcp;
+                    pkt->payload = payload;
+                    pkt->payload_len = payload_len;
+                    break;
+                }
+                case IPPROTO_UDP: {
+                    int size_udp = parse_udp(l4, pkt);
+                    if (size_udp == 0) return;
+                    snprintf(pkt->proto_name, PROTO_NAME_LEN, "UDP");
+                    const uint8_t *payload = l4 + size_udp;
+                    uint32_t payload_len = cap_len - SIZE_ETHERNET - size_ip - size_udp;
                     pkt->payload = payload;
                     pkt->payload_len = payload_len;
                     break;
