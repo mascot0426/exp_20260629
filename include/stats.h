@@ -1,13 +1,13 @@
 /**
  * @file    stats.h
- * @brief   流量统计模块接口定义 (Day3 哈希表版本)
+ * @brief   流量统计模块接口定义 (Day4 协议类型统计版本)
  *
- * Day3 更新: 引入哈希表数据结构，支持按源 IP 地址聚合统计。
- *   - 使用链表法解决哈希冲突
- *   - 哈希表大小 STATS_HASH_SIZE 在 packet.h 中定义
+ * Day4 更新: 完善按协议类型统计流量
+ *   - proto_stats_t 增加各协议的字节数字段
+ *   - 新增协议名称映射函数声明
+ *   - 统计输出增加各协议字节数和占比
  *
  * 后续迭代计划:
- *   - Day4: 完善按协议类型统计
  *   - Day5: 按源/目的 IP 分别统计
  *   - Day7: 时间维度统计 + 每秒刷新 + 格式化输出
  */
@@ -19,9 +19,13 @@
 #include <sys/time.h>
 
 /**
- * @brief 按协议类型统计
+ * @brief 按协议类型统计 (包数 + 字节数)
+ *
+ * Day4 更新: 每个协议类型同时记录包数和字节数，
+ * 便于计算各协议流量占比。
  */
 typedef struct {
+    /* 包数统计 */
     uint64_t tcp_count;       /* TCP 包数 */
     uint64_t udp_count;       /* UDP 包数 */
     uint64_t icmp_count;      /* ICMP 包数 */
@@ -30,6 +34,15 @@ typedef struct {
     uint64_t ipv6_count;      /* IPv6 包数 */
     uint64_t other_count;     /* 其他协议包数 */
     uint64_t total_packets;   /* 总包数 */
+
+    /* 字节数统计 (Day4 新增) */
+    uint64_t tcp_bytes;       /* TCP 字节数 */
+    uint64_t udp_bytes;       /* UDP 字节数 */
+    uint64_t icmp_bytes;      /* ICMP 字节数 */
+    uint64_t arp_bytes;       /* ARP 字节数 */
+    uint64_t ipv4_bytes;      /* IPv4 字节数 */
+    uint64_t ipv6_bytes;      /* IPv6 字节数 */
+    uint64_t other_bytes;     /* 其他协议字节数 */
     uint64_t total_bytes;     /* 总字节数 */
 } proto_stats_t;
 
@@ -48,8 +61,6 @@ typedef struct ip_stats_node {
 
 /**
  * @brief 统计上下文
- *
- * Day3 版本增加 IP 哈希表，支持按源 IP 地址聚合统计。
  */
 typedef struct {
     proto_stats_t     proto_stats;                 /* 协议统计 */
@@ -66,7 +77,7 @@ void stats_init(stats_ctx_t *ctx);
 /**
  * @brief 更新统计 (在数据包回调中调用)
  *
- * Day3 版本在 Day2 协议维度基础上，增加按源 IP 的哈希表聚合统计。
+ * Day4 版本在 Day3 基础上，增加按协议类型的字节数统计。
  *
  * @param ctx 统计上下文
  * @param pkt 解析后的数据包
@@ -76,7 +87,7 @@ void stats_update(stats_ctx_t *ctx, const packet_info_t *pkt);
 /**
  * @brief 打印统计结果 (抓包结束时调用)
  *
- * Day3 版本增加 IP 地址维度统计输出。
+ * Day4 版本增加各协议字节数和占比显示。
  *
  * @param ctx 统计上下文
  */
@@ -88,6 +99,20 @@ void stats_print(const stats_ctx_t *ctx);
  * @return 不同 IP 地址数量
  */
 int stats_get_ip_count(const stats_ctx_t *ctx);
+
+/**
+ * @brief 将 EtherType 转为可读协议名称
+ * @param eth_type EtherType 值
+ * @return 协议名称字符串
+ */
+const char *stats_ethertype_name(uint16_t eth_type);
+
+/**
+ * @brief 将 IP 协议号转为可读协议名称
+ * @param proto 协议号
+ * @return 协议名称字符串
+ */
+const char *stats_ipproto_name(uint8_t proto);
 
 /**
  * @brief 销毁统计上下文，释放哈希表内存

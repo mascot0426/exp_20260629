@@ -1,12 +1,12 @@
 /**
  * @file    stats.c
- * @brief   流量统计实现 (Day3 哈希表版本)
+ * @brief   流量统计实现 (Day4 协议类型统计版本)
  *
- * Day3 更新: 引入哈希表按源 IP 地址聚合统计
- *   - 使用 djb2 字符串哈希函数 (hash × 33 + c)
- *   - 链表法解决冲突，头插法插入新节点
- *   - stats_print 增加 IP 地址维度统计输出
- *   - stats_destroy 释放哈希表所有节点的内存
+ * Day4 更新: 完善按协议类型统计流量
+ *   - proto_stats_t 增加各协议字节数字段
+ *   - 新增协议名称映射函数 stats_ethertype_name() / stats_ipproto_name()
+ *   - stats_update 中按协议更新字节数
+ *   - stats_print 输出各协议包数、字节数和占比
  *
  * 后续迭代:
  *   - Day5: 按源/目的 IP 分别统计
@@ -38,6 +38,36 @@ static unsigned int hash_ip(const char *ip_str)
     return hash % STATS_HASH_SIZE;
 }
 
+/**
+ * @brief 将 EtherType 转为可读协议名称
+ * @param eth_type EtherType 值
+ * @return 协议名称字符串
+ */
+const char *stats_ethertype_name(uint16_t eth_type)
+{
+    switch (eth_type) {
+        case ETHERTYPE_IPV4: return "IPv4";
+        case ETHERTYPE_IPV6: return "IPv6";
+        case ETHERTYPE_ARP:  return "ARP";
+        default:             return "Other";
+    }
+}
+
+/**
+ * @brief 将 IP 协议号转为可读协议名称
+ * @param proto 协议号
+ * @return 协议名称字符串
+ */
+const char *stats_ipproto_name(uint8_t proto)
+{
+    switch (proto) {
+        case IPPROTO_TCP:  return "TCP";
+        case IPPROTO_UDP:  return "UDP";
+        case IPPROTO_ICMP: return "ICMP";
+        default:           return "Other";
+    }
+}
+
 void stats_init(stats_ctx_t *ctx)
 {
     if (ctx == NULL) return;
@@ -49,24 +79,47 @@ void stats_update(stats_ctx_t *ctx, const packet_info_t *pkt)
 {
     if (ctx == NULL || pkt == NULL) return;
 
+    uint32_t len = pkt->cap_len;
+
     /* 更新总计数 */
     ctx->proto_stats.total_packets++;
-    ctx->proto_stats.total_bytes += pkt->cap_len;
+    ctx->proto_stats.total_bytes += len;
 
-    /* 按链路层协议类型计数 */
+    /* 按链路层协议类型统计包数和字节数 */
     switch (pkt->eth_type) {
-        case ETHERTYPE_IPV4: ctx->proto_stats.ipv4_count++; break;
-        case ETHERTYPE_IPV6: ctx->proto_stats.ipv6_count++; break;
-        case ETHERTYPE_ARP:  ctx->proto_stats.arp_count++;  break;
-        default:             ctx->proto_stats.other_count++; break;
+        case ETHERTYPE_IPV4:
+            ctx->proto_stats.ipv4_count++;
+            ctx->proto_stats.ipv4_bytes += len;
+            break;
+        case ETHERTYPE_IPV6:
+            ctx->proto_stats.ipv6_count++;
+            ctx->proto_stats.ipv6_bytes += len;
+            break;
+        case ETHERTYPE_ARP:
+            ctx->proto_stats.arp_count++;
+            ctx->proto_stats.arp_bytes += len;
+            break;
+        default:
+            ctx->proto_stats.other_count++;
+            ctx->proto_stats.other_bytes += len;
+            break;
     }
 
-    /* 按网络层协议号计数 (仅 IPv4/IPv6 有上层协议) */
+    /* 按网络层协议号统计包数和字节数 (仅 IPv4/IPv6 有上层协议) */
     if (pkt->eth_type == ETHERTYPE_IPV4 || pkt->eth_type == ETHERTYPE_IPV6) {
         switch (pkt->ip_proto) {
-            case IPPROTO_TCP:  ctx->proto_stats.tcp_count++;  break;
-            case IPPROTO_UDP:  ctx->proto_stats.udp_count++;  break;
-            case IPPROTO_ICMP: ctx->proto_stats.icmp_count++; break;
+            case IPPROTO_TCP:
+                ctx->proto_stats.tcp_count++;
+                ctx->proto_stats.tcp_bytes += len;
+                break;
+            case IPPROTO_UDP:
+                ctx->proto_stats.udp_count++;
+                ctx->proto_stats.udp_bytes += len;
+                break;
+            case IPPROTO_ICMP:
+                ctx->proto_stats.icmp_count++;
+                ctx->proto_stats.icmp_bytes += len;
+                break;
             default: break;
         }
     }
@@ -80,7 +133,7 @@ void stats_update(stats_ctx_t *ctx, const packet_info_t *pkt)
         while (node != NULL) {
             if (strcmp(node->ip_addr, pkt->src_ip) == 0) {
                 node->packet_count++;
-                node->byte_count += pkt->cap_len;
+                node->byte_count += len;
                 break;
             }
             node = node->next;
@@ -93,7 +146,7 @@ void stats_update(stats_ctx_t *ctx, const packet_info_t *pkt)
             strncpy(node->ip_addr, pkt->src_ip, IP_STR_LEN - 1);
             node->ip_addr[IP_STR_LEN - 1] = '\0';
             node->packet_count = 1;
-            node->byte_count = pkt->cap_len;
+            node->byte_count = len;
             node->next = ctx->ip_table[idx];
             ctx->ip_table[idx] = node;
         }
@@ -116,6 +169,18 @@ int stats_get_ip_count(const stats_ctx_t *ctx)
     return count;
 }
 
+/**
+ * @brief 计算占比百分比
+ * @param part 部分值
+ * @param total 总值
+ * @return 百分比 (0.0 ~ 100.0)
+ */
+static double pct(uint64_t part, uint64_t total)
+{
+    if (total == 0) return 0.0;
+    return (double)part * 100.0 / (double)total;
+}
+
 void stats_print(const stats_ctx_t *ctx)
 {
     if (ctx == NULL) return;
@@ -125,46 +190,70 @@ void stats_print(const stats_ctx_t *ctx)
     double elapsed = (now.tv_sec - ctx->start_time.tv_sec) +
                      (now.tv_usec - ctx->start_time.tv_usec) / 1000000.0;
 
+    const proto_stats_t *s = &ctx->proto_stats;
+
     printf("\n");
-    printf("============================================\n");
-    printf("           流量统计报告\n");
-    printf("============================================\n");
+    printf("==============================================================\n");
+    printf("                      流量统计报告\n");
+    printf("==============================================================\n");
     printf("统计时长:     %.2f 秒\n", elapsed);
-    printf("总数据包:     %lu\n", (unsigned long)ctx->proto_stats.total_packets);
-    printf("总字节数:     %lu\n", (unsigned long)ctx->proto_stats.total_bytes);
+    printf("总数据包:     %lu\n", (unsigned long)s->total_packets);
+    printf("总字节数:     %lu (%.2f KB)\n",
+           (unsigned long)s->total_bytes, s->total_bytes / 1024.0);
 
     if (elapsed > 0) {
         printf("平均速率:     %.2f pps, %.2f KB/s\n",
-               ctx->proto_stats.total_packets / elapsed,
-               ctx->proto_stats.total_bytes / 1024.0 / elapsed);
+               s->total_packets / elapsed,
+               s->total_bytes / 1024.0 / elapsed);
     }
 
-    printf("--------------------------------------------\n");
-    printf("协议分布:\n");
-    printf("  IPv4:     %lu\n", (unsigned long)ctx->proto_stats.ipv4_count);
-    printf("  IPv6:     %lu\n", (unsigned long)ctx->proto_stats.ipv6_count);
-    printf("  ARP:      %lu\n", (unsigned long)ctx->proto_stats.arp_count);
-    printf("  其他:     %lu\n", (unsigned long)ctx->proto_stats.other_count);
-    printf("  TCP:      %lu\n", (unsigned long)ctx->proto_stats.tcp_count);
-    printf("  UDP:      %lu\n", (unsigned long)ctx->proto_stats.udp_count);
-    printf("  ICMP:     %lu\n", (unsigned long)ctx->proto_stats.icmp_count);
+    /* ===== 链路层协议统计 (包数 + 字节数 + 占比) ===== */
+    printf("--------------------------------------------------------------\n");
+    printf("链路层协议分布:\n");
+    printf("  %-8s %10s %8s  %14s %8s\n", "协议", "包数", "占比", "字节数", "占比");
+    printf("  %-8s %10lu %7.1f%%  %14lu %7.1f%%\n",
+           "IPv4", (unsigned long)s->ipv4_count, pct(s->ipv4_count, s->total_packets),
+           (unsigned long)s->ipv4_bytes, pct(s->ipv4_bytes, s->total_bytes));
+    printf("  %-8s %10lu %7.1f%%  %14lu %7.1f%%\n",
+           "IPv6", (unsigned long)s->ipv6_count, pct(s->ipv6_count, s->total_packets),
+           (unsigned long)s->ipv6_bytes, pct(s->ipv6_bytes, s->total_bytes));
+    printf("  %-8s %10lu %7.1f%%  %14lu %7.1f%%\n",
+           "ARP",  (unsigned long)s->arp_count,  pct(s->arp_count, s->total_packets),
+           (unsigned long)s->arp_bytes,  pct(s->arp_bytes, s->total_bytes));
+    printf("  %-8s %10lu %7.1f%%  %14lu %7.1f%%\n",
+           "Other", (unsigned long)s->other_count, pct(s->other_count, s->total_packets),
+           (unsigned long)s->other_bytes, pct(s->other_bytes, s->total_bytes));
 
-    /* IP 地址维度统计 (Day3 新增) */
-    printf("--------------------------------------------\n");
+    /* ===== 传输层协议统计 (包数 + 字节数 + 占比) ===== */
+    printf("--------------------------------------------------------------\n");
+    printf("传输层协议分布:\n");
+    printf("  %-8s %10s %8s  %14s %8s\n", "协议", "包数", "占比", "字节数", "占比");
+    printf("  %-8s %10lu %7.1f%%  %14lu %7.1f%%\n",
+           "TCP",  (unsigned long)s->tcp_count,  pct(s->tcp_count, s->total_packets),
+           (unsigned long)s->tcp_bytes,  pct(s->tcp_bytes, s->total_bytes));
+    printf("  %-8s %10lu %7.1f%%  %14lu %7.1f%%\n",
+           "UDP",  (unsigned long)s->udp_count,  pct(s->udp_count, s->total_packets),
+           (unsigned long)s->udp_bytes,  pct(s->udp_bytes, s->total_bytes));
+    printf("  %-8s %10lu %7.1f%%  %14lu %7.1f%%\n",
+           "ICMP", (unsigned long)s->icmp_count, pct(s->icmp_count, s->total_packets),
+           (unsigned long)s->icmp_bytes, pct(s->icmp_bytes, s->total_bytes));
+
+    /* ===== IP 地址维度统计 ===== */
+    printf("--------------------------------------------------------------\n");
     printf("IP地址统计 (共 %d 个不同地址):\n", stats_get_ip_count(ctx));
-    printf("  %-46s %10s %12s\n", "IP地址", "包数", "字节数");
+    printf("  %-46s %10s %14s\n", "IP地址", "包数", "字节数");
 
     for (int i = 0; i < STATS_HASH_SIZE; i++) {
         ip_stats_node_t *node = ctx->ip_table[i];
         while (node != NULL) {
-            printf("  %-46s %10lu %12lu\n",
+            printf("  %-46s %10lu %14lu\n",
                    node->ip_addr,
                    (unsigned long)node->packet_count,
                    (unsigned long)node->byte_count);
             node = node->next;
         }
     }
-    printf("============================================\n\n");
+    printf("==============================================================\n\n");
 
     /* TODO: Day7 起增加时间维度统计输出 */
 }
