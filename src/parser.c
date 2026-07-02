@@ -125,6 +125,21 @@ int parse_udp(const uint8_t *packet, packet_info_t *pkt)
     return 8; /* UDP头固定8字节 */
 }
 
+/* ===== 第三层: ICMP头部解析 ===== */
+void parse_icmp(const uint8_t *packet, packet_info_t *pkt)
+{
+    const sniff_icmp_t *icmp = (const sniff_icmp_t *)packet;
+
+    /* 根据类型码设置协议名称 */
+    switch (icmp->icmp_type) {
+        case 0:  snprintf(pkt->proto_name, PROTO_NAME_LEN, "ICMP Echo Reply"); break;
+        case 8:  snprintf(pkt->proto_name, PROTO_NAME_LEN, "ICMP Echo Request"); break;
+        case 3:  snprintf(pkt->proto_name, PROTO_NAME_LEN, "ICMP Dest Unreachable"); break;
+        case 11: snprintf(pkt->proto_name, PROTO_NAME_LEN, "ICMP Time Exceeded"); break;
+        default: snprintf(pkt->proto_name, PROTO_NAME_LEN, "ICMP type=%d", icmp->icmp_type); break;
+    }
+}
+
 /* ===== 主入口: 逐层解析数据包 ===== */
 void parse_packet(const uint8_t *packet, uint32_t cap_len,
                   uint32_t orig_len, struct timeval ts,
@@ -175,6 +190,9 @@ void parse_packet(const uint8_t *packet, uint32_t cap_len,
                     pkt->payload_len = payload_len;
                     break;
                 }
+                case IPPROTO_ICMP:
+                    parse_icmp(l4, pkt);
+                    break;
                 default:
                     snprintf(pkt->proto_name, PROTO_NAME_LEN, "IP proto=%d", pkt->ip_proto);
                     break;
