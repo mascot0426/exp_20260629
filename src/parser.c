@@ -149,6 +149,28 @@ void parse_dns(const uint8_t *payload, uint32_t len, packet_info_t *pkt)
     snprintf(pkt->proto_name, PROTO_NAME_LEN, "DNS (queries=%d)", qdcount);
 }
 
+/* ===== 应用层: HTTP请求响应识别 ===== */
+void parse_http(const uint8_t *payload, uint32_t len, packet_info_t *pkt)
+{
+    if (len < 4) return;
+
+    /* 检查HTTP请求方法 */
+    if (len >= 4 && memcmp(payload, "GET ", 4) == 0) {
+        snprintf(pkt->proto_name, PROTO_NAME_LEN, "HTTP GET");
+    } else if (len >= 5 && memcmp(payload, "POST ", 5) == 0) {
+        snprintf(pkt->proto_name, PROTO_NAME_LEN, "HTTP POST");
+    } else if (len >= 4 && memcmp(payload, "PUT ", 4) == 0) {
+        snprintf(pkt->proto_name, PROTO_NAME_LEN, "HTTP PUT");
+    } else if (len >= 7 && memcmp(payload, "DELETE ", 7) == 0) {
+        snprintf(pkt->proto_name, PROTO_NAME_LEN, "HTTP DELETE");
+    } else if (len >= 5 && memcmp(payload, "HTTP/", 5) == 0) {
+        /* HTTP响应 */
+        snprintf(pkt->proto_name, PROTO_NAME_LEN, "HTTP Response");
+    } else {
+        snprintf(pkt->proto_name, PROTO_NAME_LEN, "HTTP");
+    }
+}
+
 /* ===== 主入口: 逐层解析数据包 ===== */
 void parse_packet(const uint8_t *packet, uint32_t cap_len,
                   uint32_t orig_len, struct timeval ts,
@@ -185,6 +207,10 @@ void parse_packet(const uint8_t *packet, uint32_t cap_len,
                     snprintf(pkt->proto_name, PROTO_NAME_LEN, "TCP");
                     const uint8_t *payload = l4 + size_tcp;
                     uint32_t payload_len = cap_len - SIZE_ETHERNET - size_ip - size_tcp;
+                    /* HTTP识别(端口80) */
+                    if (pkt->src_port == 80 || pkt->dst_port == 80) {
+                        parse_http(payload, payload_len, pkt);
+                    }
                     pkt->payload = payload;
                     pkt->payload_len = payload_len;
                     break;
