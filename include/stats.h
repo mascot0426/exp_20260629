@@ -1,14 +1,13 @@
 /**
  * @file    stats.h
- * @brief   流量统计模块接口定义 (Day4 协议类型统计版本)
+ * @brief   流量统计模块接口定义 (Day5 源/目的IP统计版本)
  *
- * Day4 更新: 完善按协议类型统计流量
- *   - proto_stats_t 增加各协议的字节数字段
- *   - 新增协议名称映射函数声明
- *   - 统计输出增加各协议字节数和占比
+ * Day5 更新: 按源/目的 IP 分别统计
+ *   - stats_ctx_t 增加目的 IP 哈希表 dst_ip_table
+ *   - 新增 stats_get_dst_ip_count() 获取目的 IP 数量
+ *   - 统计输出分源 IP 和目的 IP 两段显示
  *
  * 后续迭代计划:
- *   - Day5: 按源/目的 IP 分别统计
  *   - Day7: 时间维度统计 + 每秒刷新 + 格式化输出
  */
 
@@ -20,9 +19,6 @@
 
 /**
  * @brief 按协议类型统计 (包数 + 字节数)
- *
- * Day4 更新: 每个协议类型同时记录包数和字节数，
- * 便于计算各协议流量占比。
  */
 typedef struct {
     /* 包数统计 */
@@ -61,10 +57,13 @@ typedef struct ip_stats_node {
 
 /**
  * @brief 统计上下文
+ *
+ * Day5 更新: 增加目的 IP 哈希表，支持按源/目的 IP 分别统计。
  */
 typedef struct {
     proto_stats_t     proto_stats;                 /* 协议统计 */
-    ip_stats_node_t  *ip_table[STATS_HASH_SIZE];   /* IP 统计哈希表 */
+    ip_stats_node_t  *ip_table[STATS_HASH_SIZE];   /* 源 IP 统计哈希表 */
+    ip_stats_node_t  *dst_ip_table[STATS_HASH_SIZE]; /* 目的 IP 统计哈希表 (Day5 新增) */
     struct timeval     start_time;                  /* 统计开始时间 */
 } stats_ctx_t;
 
@@ -77,7 +76,7 @@ void stats_init(stats_ctx_t *ctx);
 /**
  * @brief 更新统计 (在数据包回调中调用)
  *
- * Day4 版本在 Day3 基础上，增加按协议类型的字节数统计。
+ * Day5 版本在 Day4 基础上，增加按目的 IP 的哈希表聚合统计。
  *
  * @param ctx 统计上下文
  * @param pkt 解析后的数据包
@@ -87,18 +86,25 @@ void stats_update(stats_ctx_t *ctx, const packet_info_t *pkt);
 /**
  * @brief 打印统计结果 (抓包结束时调用)
  *
- * Day4 版本增加各协议字节数和占比显示。
+ * Day5 版本分源 IP 和目的 IP 两段显示统计。
  *
  * @param ctx 统计上下文
  */
 void stats_print(const stats_ctx_t *ctx);
 
 /**
- * @brief 获取哈希表中的 IP 统计节点数
+ * @brief 获取源 IP 哈希表中的节点数
  * @param ctx 统计上下文
- * @return 不同 IP 地址数量
+ * @return 不同源 IP 地址数量
  */
 int stats_get_ip_count(const stats_ctx_t *ctx);
+
+/**
+ * @brief 获取目的 IP 哈希表中的节点数 (Day5 新增)
+ * @param ctx 统计上下文
+ * @return 不同目的 IP 地址数量
+ */
+int stats_get_dst_ip_count(const stats_ctx_t *ctx);
 
 /**
  * @brief 将 EtherType 转为可读协议名称

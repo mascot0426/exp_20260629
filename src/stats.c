@@ -1,15 +1,15 @@
 /**
  * @file    stats.c
- * @brief   流量统计实现 (Day4 协议类型统计版本)
+ * @brief   流量统计实现 (Day5 源/目的IP统计版本)
  *
- * Day4 更新: 完善按协议类型统计流量
- *   - proto_stats_t 增加各协议字节数字段
- *   - 新增协议名称映射函数 stats_ethertype_name() / stats_ipproto_name()
- *   - stats_update 中按协议更新字节数
- *   - stats_print 输出各协议包数、字节数和占比
+ * Day5 更新: 按源/目的 IP 分别统计
+ *   - stats_ctx_t 增加目的 IP 哈希表 dst_ip_table
+ *   - stats_update 中同时更新源 IP 和目的 IP 统计
+ *   - stats_print 分源 IP / 目的 IP 两段输出
+ *   - stats_destroy 释放两张哈希表内存
+ *   - 新增 stats_get_dst_ip_count()
  *
  * 后续迭代:
- *   - Day5: 按源/目的 IP 分别统计
  *   - Day7: 增加时间维度 + 每秒刷新
  *
  * 参考思路: mmahdi98/traffic_analyser (哈希表流聚合)
@@ -68,6 +68,43 @@ const char *stats_ipproto_name(uint8_t proto)
     }
 }
 
+/**
+ * @brief 在哈希表中更新指定 IP 的统计 (内部辅助函数)
+ *
+ * 查找 IP 节点，存在则累加，不存在则新建 (头插法)。
+ *
+ * @param table   哈希表数组
+ * @param ip_str  IP 地址字符串
+ * @param len     数据包长度
+ */
+static void ip_table_update(ip_stats_node_t *table[], const char *ip_str, uint32_t len)
+{
+    if (ip_str == NULL || ip_str[0] == '\0') return;
+
+    unsigned int idx = hash_ip(ip_str);
+    ip_stats_node_t *node = table[idx];
+
+    /* 查找是否已存在该 IP */
+    while (node != NULL) {
+        if (strcmp(node->ip_addr, ip_str) == 0) {
+            node->packet_count++;
+            node->byte_count += len;
+            return;
+        }
+        node = node->next;
+    }
+
+    /* 不存在则新建节点 (头插法) */
+    node = (ip_stats_node_t *)malloc(sizeof(ip_stats_node_t));
+    if (node == NULL) return;
+    strncpy(node->ip_addr, ip_str, IP_STR_LEN - 1);
+    node->ip_addr[IP_STR_LEN - 1] = '\0';
+    node->packet_count = 1;
+    node->byte_count = len;
+    node->next = table[idx];
+    table[idx] = node;
+}
+
 void stats_init(stats_ctx_t *ctx)
 {
     if (ctx == NULL) return;
@@ -124,35 +161,11 @@ void stats_update(stats_ctx_t *ctx, const packet_info_t *pkt)
         }
     }
 
-    /* 更新 IP 维度统计 (按源 IP 哈希聚合) */
-    if (pkt->src_ip[0] != '\0') {
-        unsigned int idx = hash_ip(pkt->src_ip);
-        ip_stats_node_t *node = ctx->ip_table[idx];
+    /* 按源 IP 哈希聚合统计 */
+    ip_table_update(ctx->ip_table, pkt->src_ip, len);
 
-        /* 查找是否已存在该 IP */
-        while (node != NULL) {
-            if (strcmp(node->ip_addr, pkt->src_ip) == 0) {
-                node->packet_count++;
-                node->byte_count += len;
-                break;
-            }
-            node = node->next;
-        }
-
-        /* 不存在则新建节点 (头插法) */
-        if (node == NULL) {
-            node = (ip_stats_node_t *)malloc(sizeof(ip_stats_node_t));
-            if (node == NULL) return;
-            strncpy(node->ip_addr, pkt->src_ip, IP_STR_LEN - 1);
-            node->ip_addr[IP_STR_LEN - 1] = '\0';
-            node->packet_count = 1;
-            node->byte_count = len;
-            node->next = ctx->ip_table[idx];
-            ctx->ip_table[idx] = node;
-        }
-    }
-
-    /* TODO: Day5 起增加按目的 IP 统计 */
+    /* 按目的 IP 哈希聚合统计 (Day5 新增) */
+    ip_table_update(ctx->dst_ip_table, pkt->dst_ip, len);
 }
 
 int stats_get_ip_count(const stats_ctx_t *ctx)
@@ -161,6 +174,20 @@ int stats_get_ip_count(const stats_ctx_t *ctx)
     int count = 0;
     for (int i = 0; i < STATS_HASH_SIZE; i++) {
         ip_stats_node_t *node = ctx->ip_table[i];
+        while (node != NULL) {
+            count++;
+            node = node->next;
+        }
+    }
+    return count;
+}
+
+int stats_get_dst_ip_count(const stats_ctx_t *ctx)
+{
+    if (ctx == NULL) return 0;
+    int count = 0;
+    for (int i = 0; i < STATS_HASH_SIZE; i++) {
+        ip_stats_node_t *node = ctx->dst_ip_table[i];
         while (node != NULL) {
             count++;
             node = node->next;
@@ -179,6 +206,29 @@ static double pct(uint64_t part, uint64_t total)
 {
     if (total == 0) return 0.0;
     return (double)part * 100.0 / (double)total;
+}
+
+/**
+ * @brief 打印 IP 哈希表内容 (内部辅助函数)
+ * @param table   哈希表数组
+ * @param label   段落标题
+ */
+static void ip_table_print(ip_stats_node_t *table[], const char *label, int count)
+{
+    printf("--------------------------------------------------------------\n");
+    printf("%s (共 %d 个不同地址):\n", label, count);
+    printf("  %-46s %10s %14s\n", "IP地址", "包数", "字节数");
+
+    for (int i = 0; i < STATS_HASH_SIZE; i++) {
+        ip_stats_node_t *node = table[i];
+        while (node != NULL) {
+            printf("  %-46s %10lu %14lu\n",
+                   node->ip_addr,
+                   (unsigned long)node->packet_count,
+                   (unsigned long)node->byte_count);
+            node = node->next;
+        }
+    }
 }
 
 void stats_print(const stats_ctx_t *ctx)
@@ -238,38 +288,43 @@ void stats_print(const stats_ctx_t *ctx)
            "ICMP", (unsigned long)s->icmp_count, pct(s->icmp_count, s->total_packets),
            (unsigned long)s->icmp_bytes, pct(s->icmp_bytes, s->total_bytes));
 
-    /* ===== IP 地址维度统计 ===== */
-    printf("--------------------------------------------------------------\n");
-    printf("IP地址统计 (共 %d 个不同地址):\n", stats_get_ip_count(ctx));
-    printf("  %-46s %10s %14s\n", "IP地址", "包数", "字节数");
+    /* ===== 源 IP 地址维度统计 ===== */
+    ip_table_print(ctx->ip_table, "源IP地址统计",
+                   stats_get_ip_count(ctx));
 
-    for (int i = 0; i < STATS_HASH_SIZE; i++) {
-        ip_stats_node_t *node = ctx->ip_table[i];
-        while (node != NULL) {
-            printf("  %-46s %10lu %14lu\n",
-                   node->ip_addr,
-                   (unsigned long)node->packet_count,
-                   (unsigned long)node->byte_count);
-            node = node->next;
-        }
-    }
+    /* ===== 目的 IP 地址维度统计 (Day5 新增) ===== */
+    ip_table_print(ctx->dst_ip_table, "目的IP地址统计",
+                   stats_get_dst_ip_count(ctx));
+
     printf("==============================================================\n\n");
 
     /* TODO: Day7 起增加时间维度统计输出 */
+}
+
+/**
+ * @brief 释放哈希表所有节点 (内部辅助函数)
+ * @param table 哈希表数组
+ */
+static void ip_table_destroy(ip_stats_node_t *table[])
+{
+    for (int i = 0; i < STATS_HASH_SIZE; i++) {
+        ip_stats_node_t *node = table[i];
+        while (node != NULL) {
+            ip_stats_node_t *tmp = node;
+            node = node->next;
+            free(tmp);
+        }
+        table[i] = NULL;
+    }
 }
 
 void stats_destroy(stats_ctx_t *ctx)
 {
     if (ctx == NULL) return;
 
-    /* 遍历哈希表，释放所有 IP 统计节点 */
-    for (int i = 0; i < STATS_HASH_SIZE; i++) {
-        ip_stats_node_t *node = ctx->ip_table[i];
-        while (node != NULL) {
-            ip_stats_node_t *tmp = node;
-            node = node->next;
-            free(tmp);
-        }
-        ctx->ip_table[i] = NULL;
-    }
+    /* 释放源 IP 哈希表 */
+    ip_table_destroy(ctx->ip_table);
+
+    /* 释放目的 IP 哈希表 (Day5 新增) */
+    ip_table_destroy(ctx->dst_ip_table);
 }
