@@ -140,6 +140,15 @@ void parse_icmp(const uint8_t *packet, packet_info_t *pkt)
     }
 }
 
+/* ===== 应用层: DNS查询解析 ===== */
+void parse_dns(const uint8_t *payload, uint32_t len, packet_info_t *pkt)
+{
+    if (len < 12) return; /* DNS头最小12字节 */
+
+    uint16_t qdcount = (payload[4] << 8) | payload[5];
+    snprintf(pkt->proto_name, PROTO_NAME_LEN, "DNS (queries=%d)", qdcount);
+}
+
 /* ===== 主入口: 逐层解析数据包 ===== */
 void parse_packet(const uint8_t *packet, uint32_t cap_len,
                   uint32_t orig_len, struct timeval ts,
@@ -186,6 +195,10 @@ void parse_packet(const uint8_t *packet, uint32_t cap_len,
                     snprintf(pkt->proto_name, PROTO_NAME_LEN, "UDP");
                     const uint8_t *payload = l4 + size_udp;
                     uint32_t payload_len = cap_len - SIZE_ETHERNET - size_ip - size_udp;
+                    /* DNS识别(端口53) */
+                    if (pkt->src_port == 53 || pkt->dst_port == 53) {
+                        parse_dns(payload, payload_len, pkt);
+                    }
                     pkt->payload = payload;
                     pkt->payload_len = payload_len;
                     break;
