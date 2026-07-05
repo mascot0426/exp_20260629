@@ -46,6 +46,16 @@ valgrind-replay: $(TARGET)
 	valgrind --leak-check=full --show-leak-kinds=all \
 		--track-origins=yes -v ./$(TARGET) -r tests/test.pcap
 
+# 性能测试: 静默模式抓大量包
+perf-test: $(TARGET)
+	@echo "性能测试: 静默模式抓取10000个包..."
+	sudo ./$(TARGET) -i eth0 -q -c 10000 -f "tcp port 80"
+
+# 演示: HTTP请求响应配对
+demo-http: $(TARGET)
+	@echo "HTTP配对演示: 抓取80端口HTTP流量..."
+	sudo ./$(TARGET) -i eth0 -c 50 -f "tcp port 80"
+
 # 清理
 clean:
 	rm -f $(OBJS) $(TARGET) $(TEST_TARGET)
@@ -62,6 +72,8 @@ help:
 	@echo "  make            编译项目"
 	@echo "  make test       编译并运行单元测试"
 	@echo "  make valgrind   内存泄漏检测(实时抓包)"
+	@echo "  make perf-test  性能测试(静默模式)"
+	@echo "  make demo-http  HTTP请求响应配对演示"
 	@echo "  make clean      清理编译产物"
 
-.PHONY: all clean test valgrind valgrind-replay install help
+.PHONY: all clean test valgrind valgrind-replay perf-test demo-http install help
