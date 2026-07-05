@@ -66,6 +66,49 @@
 /* IP地址字符串最大长度 (支持IPv6) */
 #define IP_STR_LEN      46
 
+/* HTTP请求/响应最大内容长度 */
+#define HTTP_CONTENT_MAX  256
+
+/* ======================== HTTP流跟踪结构 ======================== */
+
+/**
+ * @brief HTTP请求信息
+ */
+typedef struct {
+    char     method[16];           /* 请求方法: GET/POST/PUT/DELETE */
+    char     url[128];             /* 请求URL路径 */
+    char     host[64];             /* Host头部 */
+    char     user_agent[64];       /* User-Agent头部 */
+    uint16_t status_code;          /* 响应状态码(仅响应有) */
+    char     status_text[32];      /* 响应状态文本 */
+    int      has_request;          /* 是否有请求数据 */
+    int      has_response;         /* 是否有响应数据 */
+    int      flow_paired;          /* 是否已完成请求/响应配对 */
+} http_pair_info_t;
+
+/**
+ * @brief TCP流五元组键(用于HTTP请求响应配对)
+ */
+typedef struct {
+    char     src_ip[IP_STR_LEN];
+    uint16_t src_port;
+    char     dst_ip[IP_STR_LEN];
+    uint16_t dst_port;
+    uint8_t  ip_proto;             /* IPPROTO_TCP */
+} tcp_flow_key_t;
+
+/**
+ * @brief TCP流节点(HTTP请求响应配对用)
+ */
+typedef struct tcp_flow_node {
+    tcp_flow_key_t       key;           /* 流标识 */
+    http_pair_info_t     http_info;     /* HTTP配对信息 */
+    struct tcp_flow_node *next;         /* 链表下一节点 */
+} tcp_flow_node_t;
+
+/* TCP流哈希表大小 */
+#define FLOW_HASH_SIZE  256
+
 /* ======================== 结构体定义 ======================== */
 
 /**
@@ -207,6 +250,11 @@ typedef struct {
     char     proto_name[PROTO_NAME_LEN]; /* 协议名称 */
     const uint8_t *payload;     /* 应用层负载数据指针 */
     uint32_t      payload_len;  /* 负载长度 */
+
+    /* HTTP解析增强 */
+    http_pair_info_t http_info; /* HTTP请求/响应配对信息 */
+    int              is_http_request;   /* 是否为HTTP请求方向 */
+    int              flow_paired;     /* 是否已完成配对 */
 
     /* 解析状态 */
     int      parsed_ok;         /* 解析是否成功 */
