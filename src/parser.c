@@ -62,13 +62,18 @@ void parse_ethernet(const uint8_t *packet, packet_info_t *pkt)
 }
 
 /* ===== 第二层: IPv4头部解析 ===== */
-int parse_ipv4(const uint8_t *packet, packet_info_t *pkt)
+int parse_ipv4(const uint8_t *packet, packet_info_t *pkt, uint32_t cap_len)
 {
     const sniff_ip_t *ip = (const sniff_ip_t *)(packet + SIZE_ETHERNET);
     int size_ip = IP_HL(ip) * 4;
 
-    /* 有效性检查: IP头最小20字节 */
-    if (size_ip < 20) {
+    /* 有效性检查: IP头最小20字节，最大60字节 */
+    if (size_ip < 20 || size_ip > 60) {
+        return 0;
+    }
+
+    /* 边界检查: 以太网头+IP头不超过抓取长度 */
+    if (SIZE_ETHERNET + size_ip > cap_len) {
         return 0;
     }
 
@@ -89,9 +94,14 @@ int parse_ipv4(const uint8_t *packet, packet_info_t *pkt)
 }
 
 /* ===== 第二层: IPv6头部解析 ===== */
-int parse_ipv6(const uint8_t *packet, packet_info_t *pkt)
+int parse_ipv6(const uint8_t *packet, packet_info_t *pkt, uint32_t cap_len)
 {
     const sniff_ipv6_t *ip6 = (const sniff_ipv6_t *)(packet + SIZE_ETHERNET);
+
+    /* 边界检查: 以太网头+40字节IPv6头不超过抓取长度 */
+    if (SIZE_ETHERNET + 40 > cap_len) {
+        return 0;
+    }
 
     /* IPv6地址转字符串 */
     inet_ntop(AF_INET6, ip6->ip6_src, pkt->src_ip, IP_STR_LEN);
@@ -544,7 +554,7 @@ void parse_packet(const uint8_t *packet, uint32_t cap_len,
     /* 根据EtherType分流 */
     switch (pkt->eth_type) {
         case ETHERTYPE_IPV4: {
-            int size_ip = parse_ipv4(packet, pkt);
+            int size_ip = parse_ipv4(packet, pkt, cap_len);
             if (size_ip == 0) { pkt->parsed_ok = 0; return; }
             pkt->parsed_ok = 1;
 
@@ -592,7 +602,7 @@ void parse_packet(const uint8_t *packet, uint32_t cap_len,
         }
 
         case ETHERTYPE_IPV6: {
-            int size_ip6 = parse_ipv6(packet, pkt);
+            int size_ip6 = parse_ipv6(packet, pkt, cap_len);
             if (size_ip6 == 0) { pkt->parsed_ok = 0; return; }
             const uint8_t *l4 = packet + SIZE_ETHERNET + size_ip6;
             snprintf(pkt->proto_name, PROTO_NAME_LEN, "IPv6");
