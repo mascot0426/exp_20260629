@@ -280,63 +280,80 @@ void stats_print(const stats_ctx_t *ctx)
 
     const proto_stats_t *s = &ctx->proto_stats;
 
+    /* 计算速率 */
+    double avg_pps  = (elapsed > 0) ? (s->total_packets / elapsed) : 0;
+    double avg_kbps = (elapsed > 0) ? (s->total_bytes / 1024.0 / elapsed) : 0;
+    double avg_mbps = avg_kbps / 1024.0;
+
+    /* 清除实时刷新行 */
+    printf("\r%80s\r", "");  /* 用空格覆盖之前的 brief 行 */
     printf("\n");
-    printf("==============================================================\n");
-    printf("                      流量统计报告\n");
-    printf("==============================================================\n");
-    printf("统计时长:     %.2f 秒\n", elapsed);
-    printf("总数据包:     %lu\n", (unsigned long)s->total_packets);
-    printf("总字节数:     %lu (%.2f KB)\n",
-           (unsigned long)s->total_bytes, s->total_bytes / 1024.0);
+
+    /* ===== 报告标题 ===== */
+    printf("╔════════════════════════════════════════════════════════════╗\n");
+    printf("║                      流量统计报告                          ║\n");
+    printf("╠════════════════════════════════════════════════════════════╣\n");
+
+    /* ===== 统计摘要 ===== */
+    printf("║  统计时长:   %-46.2f║\n", elapsed);
+    printf("║  总数据包:   %-46lu║\n", (unsigned long)s->total_packets);
+    printf("║  总字节数:   %-12lu (%.2f KB / %.2f MB)%16s║\n",
+           (unsigned long)s->total_bytes,
+           s->total_bytes / 1024.0,
+           s->total_bytes / (1024.0 * 1024.0),
+           "");
 
     if (elapsed > 0) {
-        printf("平均速率:     %.2f pps, %.2f KB/s\n",
-               s->total_packets / elapsed,
-               s->total_bytes / 1024.0 / elapsed);
+        printf("║  平均速率:   %-12.2f pps / %.2f KB/s / %.2f Mb/s%9s║\n",
+               avg_pps, avg_kbps, avg_mbps, "");
+        printf("║  平均包长:   %-46.1f║\n",
+               (double)s->total_bytes / (s->total_packets > 0 ? s->total_packets : 1));
     }
 
-    /* ===== 链路层协议统计 (包数 + 字节数 + 占比) ===== */
-    printf("--------------------------------------------------------------\n");
-    printf("链路层协议分布:\n");
-    printf("  %-8s %10s %8s  %14s %8s\n", "协议", "包数", "占比", "字节数", "占比");
-    printf("  %-8s %10lu %7.1f%%  %14lu %7.1f%%\n",
+    /* ===== 链路层协议统计 ===== */
+    printf("╠════════════════════════════════════════════════════════════╣\n");
+    printf("║  链路层协议分布                                            ║\n");
+    printf("║  %-8s %10s %8s  %12s %8s     ║\n",
+           "协议", "包数", "占比", "字节数", "占比");
+    printf("║  %-8s %10lu %7.1f%%  %12lu %7.1f%%     ║\n",
            "IPv4", (unsigned long)s->ipv4_count, pct(s->ipv4_count, s->total_packets),
            (unsigned long)s->ipv4_bytes, pct(s->ipv4_bytes, s->total_bytes));
-    printf("  %-8s %10lu %7.1f%%  %14lu %7.1f%%\n",
+    printf("║  %-8s %10lu %7.1f%%  %12lu %7.1f%%     ║\n",
            "IPv6", (unsigned long)s->ipv6_count, pct(s->ipv6_count, s->total_packets),
            (unsigned long)s->ipv6_bytes, pct(s->ipv6_bytes, s->total_bytes));
-    printf("  %-8s %10lu %7.1f%%  %14lu %7.1f%%\n",
+    printf("║  %-8s %10lu %7.1f%%  %12lu %7.1f%%     ║\n",
            "ARP",  (unsigned long)s->arp_count,  pct(s->arp_count, s->total_packets),
            (unsigned long)s->arp_bytes,  pct(s->arp_bytes, s->total_bytes));
-    printf("  %-8s %10lu %7.1f%%  %14lu %7.1f%%\n",
+    printf("║  %-8s %10lu %7.1f%%  %12lu %7.1f%%     ║\n",
            "Other", (unsigned long)s->other_count, pct(s->other_count, s->total_packets),
            (unsigned long)s->other_bytes, pct(s->other_bytes, s->total_bytes));
 
-    /* ===== 传输层协议统计 (包数 + 字节数 + 占比) ===== */
-    printf("--------------------------------------------------------------\n");
-    printf("传输层协议分布:\n");
-    printf("  %-8s %10s %8s  %14s %8s\n", "协议", "包数", "占比", "字节数", "占比");
-    printf("  %-8s %10lu %7.1f%%  %14lu %7.1f%%\n",
+    /* ===== 传输层协议统计 ===== */
+    printf("╠════════════════════════════════════════════════════════════╣\n");
+    printf("║  传输层协议分布                                            ║\n");
+    printf("║  %-8s %10s %8s  %12s %8s     ║\n",
+           "协议", "包数", "占比", "字节数", "占比");
+    printf("║  %-8s %10lu %7.1f%%  %12lu %7.1f%%     ║\n",
            "TCP",  (unsigned long)s->tcp_count,  pct(s->tcp_count, s->total_packets),
            (unsigned long)s->tcp_bytes,  pct(s->tcp_bytes, s->total_bytes));
-    printf("  %-8s %10lu %7.1f%%  %14lu %7.1f%%\n",
+    printf("║  %-8s %10lu %7.1f%%  %12lu %7.1f%%     ║\n",
            "UDP",  (unsigned long)s->udp_count,  pct(s->udp_count, s->total_packets),
            (unsigned long)s->udp_bytes,  pct(s->udp_bytes, s->total_bytes));
-    printf("  %-8s %10lu %7.1f%%  %14lu %7.1f%%\n",
+    printf("║  %-8s %10lu %7.1f%%  %12lu %7.1f%%     ║\n",
            "ICMP", (unsigned long)s->icmp_count, pct(s->icmp_count, s->total_packets),
            (unsigned long)s->icmp_bytes, pct(s->icmp_bytes, s->total_bytes));
+
+    printf("╚════════════════════════════════════════════════════════════╝\n");
 
     /* ===== 源 IP 地址维度统计 ===== */
     ip_table_print(ctx->ip_table, "源IP地址统计",
                    stats_get_ip_count(ctx));
 
-    /* ===== 目的 IP 地址维度统计 (Day5 新增) ===== */
+    /* ===== 目的 IP 地址维度统计 ===== */
     ip_table_print(ctx->dst_ip_table, "目的IP地址统计",
                    stats_get_dst_ip_count(ctx));
 
     printf("==============================================================\n\n");
-
-    /* TODO: Day7 起增加时间维度统计输出 */
 }
 
 /**
