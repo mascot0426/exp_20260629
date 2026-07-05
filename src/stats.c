@@ -1,16 +1,18 @@
 /**
  * @file    stats.c
- * @brief   流量统计实现 (Day5 源/目的IP统计版本)
+ * @brief   流量统计实现 (Day7 时间维度统计版本)
  *
- * Day5 更新: 按源/目的 IP 分别统计
- *   - stats_ctx_t 增加目的 IP 哈希表 dst_ip_table
- *   - stats_update 中同时更新源 IP 和目的 IP 统计
- *   - stats_print 分源 IP / 目的 IP 两段输出
- *   - stats_destroy 释放两张哈希表内存
- *   - 新增 stats_get_dst_ip_count()
+ * Day7 更新: 时间维度统计 + 每秒定时刷新
+ *   - stats_init 中设置 enable_time_stats = 1
+ *   - 新增 stats_print_brief() 每秒输出一行实时统计
+ *   - 使用 \r 回车不换行实现原地刷新效果
+ *   - 输出内容: elapsed时间 | 总包数 | 速率(pps/KB/s) | 协议分布概要
  *
- * 后续迭代:
- *   - Day7: 增加时间维度 + 每秒刷新
+ * 历史版本:
+ *   - Day5: 按源/目的 IP 分别统计 (dst_ip_table)
+ *   - Day4: 按协议类型统计流量 (字节数 + 占比)
+ *   - Day3: 引入哈希表 (djb2 + 链表法)
+ *   - Day2: 空壳版本 (协议维度基本计数)
  *
  * 参考思路: mmahdi98/traffic_analyser (哈希表流聚合)
  */
@@ -110,6 +112,7 @@ void stats_init(stats_ctx_t *ctx)
     if (ctx == NULL) return;
     memset(ctx, 0, sizeof(*ctx));
     gettimeofday(&ctx->start_time, NULL);
+    ctx->enable_time_stats = 1;  /* Day7: 默认启用时间维度统计 */
 }
 
 void stats_update(stats_ctx_t *ctx, const packet_info_t *pkt)
@@ -229,6 +232,41 @@ static void ip_table_print(ip_stats_node_t *table[], const char *label, int coun
             node = node->next;
         }
     }
+}
+
+/**
+ * @brief 打印简要统计 (每秒刷新, 抓包过程中实时调用)
+ *
+ * Day7 新增: 输出一行简要统计信息, 使用 \r 回车不换行实现原地刷新。
+ * 在 capture_loop 的每秒回调中调用, 用户可实时看到抓包进度。
+ *
+ * 输出格式:
+ *   [实时] 12s | 包:1234 速率:102.8pps/45.2KB/s | TCP:800 UDP:300 ICMP:50 ARP:20
+ *
+ * @param ctx 统计上下文
+ */
+void stats_print_brief(const stats_ctx_t *ctx)
+{
+    if (ctx == NULL) return;
+
+    struct timeval now;
+    gettimeofday(&now, NULL);
+    double elapsed = (now.tv_sec - ctx->start_time.tv_sec) +
+                     (now.tv_usec - ctx->start_time.tv_usec) / 1000000.0;
+
+    double pps  = (elapsed > 0) ? (ctx->proto_stats.total_packets / elapsed) : 0;
+    double kbps = (elapsed > 0) ? (ctx->proto_stats.total_bytes / 1024.0 / elapsed) : 0;
+
+    /* 使用 \r 回车实现原地刷新 */
+    printf("\r[实时] %lus | 包:%lu 速率:%.1fpps/%.1fKB/s | TCP:%lu UDP:%lu ICMP:%lu ARP:%lu",
+           (unsigned long)elapsed,
+           (unsigned long)ctx->proto_stats.total_packets,
+           pps, kbps,
+           (unsigned long)ctx->proto_stats.tcp_count,
+           (unsigned long)ctx->proto_stats.udp_count,
+           (unsigned long)ctx->proto_stats.icmp_count,
+           (unsigned long)ctx->proto_stats.arp_count);
+    fflush(stdout);
 }
 
 void stats_print(const stats_ctx_t *ctx)

@@ -7,8 +7,10 @@
  *   - 新增 stats_get_dst_ip_count() 获取目的 IP 数量
  *   - 统计输出分源 IP 和目的 IP 两段显示
  *
- * 后续迭代计划:
- *   - Day7: 时间维度统计 + 每秒刷新 + 格式化输出
+ * Day7 更新: 时间维度统计 + 每秒定时刷新
+ *   - stats_ctx_t 增加 enable_time_stats 字段
+ *   - 新增 stats_print_brief() 每秒实时输出一行简要统计
+ *   - 使用 \r 回车实现原地刷新效果
  */
 
 #ifndef STATS_H
@@ -59,12 +61,14 @@ typedef struct ip_stats_node {
  * @brief 统计上下文
  *
  * Day5 更新: 增加目的 IP 哈希表，支持按源/目的 IP 分别统计。
+ * Day7 更新: 增加 enable_time_stats 字段，控制时间维度统计。
  */
 typedef struct {
     proto_stats_t     proto_stats;                 /* 协议统计 */
     ip_stats_node_t  *ip_table[STATS_HASH_SIZE];   /* 源 IP 统计哈希表 */
     ip_stats_node_t  *dst_ip_table[STATS_HASH_SIZE]; /* 目的 IP 统计哈希表 (Day5 新增) */
     struct timeval     start_time;                  /* 统计开始时间 */
+    int                enable_time_stats;           /* 是否启用时间维度统计 (Day7 新增) */
 } stats_ctx_t;
 
 /**
@@ -91,6 +95,17 @@ void stats_update(stats_ctx_t *ctx, const packet_info_t *pkt);
  * @param ctx 统计上下文
  */
 void stats_print(const stats_ctx_t *ctx);
+
+/**
+ * @brief 打印简要统计 (每秒刷新, 抓包过程中实时调用)
+ *
+ * Day7 新增: 输出一行简要统计信息, 包括已抓包数、速率、协议分布概要。
+ * 使用 \r 回车不换行, 实现原地刷新效果。
+ * 在 capture_loop 的每秒回调中调用。
+ *
+ * @param ctx 统计上下文
+ */
+void stats_print_brief(const stats_ctx_t *ctx);
 
 /**
  * @brief 获取源 IP 哈希表中的节点数
