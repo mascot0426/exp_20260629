@@ -35,6 +35,7 @@ typedef struct {
     void           *user_data;     /* 回调用户数据 */
     stats_callback_t stats_callback; /* 每秒统计回调 */
     void           *stats_user_data;  /* 统计回调用户数据 */
+    int             fast_mode;     /* 快速模式: 跳过完整解析,只做轻量统计 */
     char            errbuf[PCAP_ERRBUF_SIZE]; /* 错误缓冲 */
 } capture_ctx_t;
 
@@ -73,6 +74,13 @@ void capture_set_callback(capture_ctx_t *ctx, packet_callback callback, void *us
  * @param user_data 统计回调用户数据
  */
 void capture_set_stats_callback(capture_ctx_t *ctx, stats_callback_t callback, void *user_data);
+
+/**
+ * @brief 设置快速模式(跳过完整协议解析,仅做轻量统计)
+ * @param ctx      抓包上下文
+ * @param fast     1=启用快速模式, 0=正常模式
+ */
+void capture_set_fast_mode(capture_ctx_t *ctx, int fast);
 
 /**
  * @brief 启动抓包循环(阻塞)
