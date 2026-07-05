@@ -97,6 +97,36 @@ void parse_dns(const uint8_t *payload, uint32_t len, packet_info_t *pkt);
  */
 void parse_http(const uint8_t *payload, uint32_t len, packet_info_t *pkt);
 
+/* ===== HTTP流跟踪与请求响应配对 ===== */
+
+/**
+ * @brief 初始化HTTP流跟踪表
+ */
+void http_flow_init(void);
+
+/**
+ * @brief 销毁HTTP流跟踪表，释放内存
+ */
+void http_flow_destroy(void);
+
+/**
+ * @brief 处理HTTP数据包，进行请求/响应配对
+ * @param pkt 解析后的数据包(需已解析IP/TCP层)
+ */
+void http_flow_process(packet_info_t *pkt);
+
+/**
+ * @brief 打印所有已配对的HTTP请求/响应
+ * @return 配对的数量
+ */
+int http_flow_print_pairs(void);
+
+/**
+ * @brief 获取已配对数量
+ * @return 已成功配对的HTTP请求/响应数量
+ */
+int http_flow_get_pair_count(void);
+
 /**
  * @brief 将TCP标志位转为可读字符串
  * @param flags TCP标志位
