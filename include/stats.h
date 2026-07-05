@@ -1,57 +1,36 @@
 /**
  * @file    stats.h
- * @brief   流量统计模块接口定义 (Day5 源/目的IP统计版本)
+ * @brief   流量统计模块接口定义
  *
- * Day5 更新: 按源/目的 IP 分别统计
- *   - stats_ctx_t 增加目的 IP 哈希表 dst_ip_table
- *   - 新增 stats_get_dst_ip_count() 获取目的 IP 数量
- *   - 统计输出分源 IP 和目的 IP 两段显示
- *
- * Day7 更新: 时间维度统计 + 每秒定时刷新
- *   - stats_ctx_t 增加 enable_time_stats 字段
- *   - 新增 stats_print_brief() 每秒实时输出一行简要统计
- *   - 使用 \r 回车实现原地刷新效果
+ * 支持按协议类型/IP地址/时间三维统计流量。
+ * 参考思路: mmahdi98/traffic_analyser (哈希表流聚合)
  */
 
 #ifndef STATS_H
 #define STATS_H
 
 #include "packet.h"
-#include <sys/time.h>
 
 /**
- * @brief 按协议类型统计 (包数 + 字节数)
+ * @brief 按协议类型统计
  */
 typedef struct {
-    /* 包数统计 */
-    uint64_t tcp_count;       /* TCP 包数 */
-    uint64_t udp_count;       /* UDP 包数 */
-    uint64_t icmp_count;      /* ICMP 包数 */
-    uint64_t arp_count;       /* ARP 包数 */
-    uint64_t ipv4_count;      /* IPv4 包数 */
-    uint64_t ipv6_count;      /* IPv6 包数 */
-    uint64_t other_count;     /* 其他协议包数 */
-    uint64_t total_packets;   /* 总包数 */
-
-    /* 字节数统计 (Day4 新增) */
-    uint64_t tcp_bytes;       /* TCP 字节数 */
-    uint64_t udp_bytes;       /* UDP 字节数 */
-    uint64_t icmp_bytes;      /* ICMP 字节数 */
-    uint64_t arp_bytes;       /* ARP 字节数 */
-    uint64_t ipv4_bytes;      /* IPv4 字节数 */
-    uint64_t ipv6_bytes;      /* IPv6 字节数 */
-    uint64_t other_bytes;     /* 其他协议字节数 */
-    uint64_t total_bytes;     /* 总字节数 */
+    uint64_t tcp_count;
+    uint64_t udp_count;
+    uint64_t icmp_count;
+    uint64_t arp_count;
+    uint64_t ipv4_count;
+    uint64_t ipv6_count;
+    uint64_t other_count;
+    uint64_t total_packets;
+    uint64_t total_bytes;
 } proto_stats_t;
 
 /**
- * @brief IP 统计哈希表节点 (链表法解决冲突)
- *
- * 每个 IP 地址对应一个节点，记录该 IP 的包数和字节数。
- * 新节点插入到链表头部 (头插法)。
+ * @brief IP统计哈希表节点(链表解决冲突)
  */
 typedef struct ip_stats_node {
-    char     ip_addr[IP_STR_LEN];    /* IP 地址字符串 */
+    char     ip_addr[IP_STR_LEN];    /* IP地址 */
     uint64_t packet_count;           /* 包数 */
     uint64_t byte_count;             /* 字节数 */
     struct ip_stats_node *next;      /* 链表下一节点 */
@@ -59,16 +38,12 @@ typedef struct ip_stats_node {
 
 /**
  * @brief 统计上下文
- *
- * Day5 更新: 增加目的 IP 哈希表，支持按源/目的 IP 分别统计。
- * Day7 更新: 增加 enable_time_stats 字段，控制时间维度统计。
  */
 typedef struct {
     proto_stats_t     proto_stats;                 /* 协议统计 */
-    ip_stats_node_t  *ip_table[STATS_HASH_SIZE];   /* 源 IP 统计哈希表 */
-    ip_stats_node_t  *dst_ip_table[STATS_HASH_SIZE]; /* 目的 IP 统计哈希表 (Day5 新增) */
+    ip_stats_node_t  *ip_table[STATS_HASH_SIZE];   /* IP统计哈希表 */
     struct timeval     start_time;                  /* 统计开始时间 */
-    int                enable_time_stats;           /* 是否启用时间维度统计 (Day7 新增) */
+    int                enable_time_stats;           /* 是否启用时间维度统计 */
 } stats_ctx_t;
 
 /**
@@ -78,65 +53,37 @@ typedef struct {
 void stats_init(stats_ctx_t *ctx);
 
 /**
- * @brief 更新统计 (在数据包回调中调用)
- *
- * Day5 版本在 Day4 基础上，增加按目的 IP 的哈希表聚合统计。
- *
- * @param ctx 统计上下文
- * @param pkt 解析后的数据包
+ * @brief 更新统计(在数据包回调中调用)
+ * @param ctx       统计上下文
+ * @param pkt       解析后的数据包
  */
 void stats_update(stats_ctx_t *ctx, const packet_info_t *pkt);
 
 /**
- * @brief 打印统计结果 (抓包结束时调用)
- *
- * Day5 版本分源 IP 和目的 IP 两段显示统计。
- *
+ * @brief 打印统计结果(完整报告, 抓包结束时调用)
  * @param ctx 统计上下文
  */
 void stats_print(const stats_ctx_t *ctx);
 
 /**
- * @brief 打印简要统计 (每秒刷新, 抓包过程中实时调用)
+ * @brief 打印简要统计(每秒刷新, 抓包过程中实时调用)
  *
- * Day7 新增: 输出一行简要统计信息, 包括已抓包数、速率、协议分布概要。
+ * 输出一行简要统计信息, 包括已抓包数、速率、协议分布概要。
  * 使用 \r 回车不换行, 实现原地刷新效果。
- * 在 capture_loop 的每秒回调中调用。
  *
  * @param ctx 统计上下文
  */
 void stats_print_brief(const stats_ctx_t *ctx);
 
 /**
- * @brief 获取源 IP 哈希表中的节点数
+ * @brief 获取哈希表中的IP统计节点数
  * @param ctx 统计上下文
- * @return 不同源 IP 地址数量
+ * @return 不同IP地址数量
  */
 int stats_get_ip_count(const stats_ctx_t *ctx);
 
 /**
- * @brief 获取目的 IP 哈希表中的节点数 (Day5 新增)
- * @param ctx 统计上下文
- * @return 不同目的 IP 地址数量
- */
-int stats_get_dst_ip_count(const stats_ctx_t *ctx);
-
-/**
- * @brief 将 EtherType 转为可读协议名称
- * @param eth_type EtherType 值
- * @return 协议名称字符串
- */
-const char *stats_ethertype_name(uint16_t eth_type);
-
-/**
- * @brief 将 IP 协议号转为可读协议名称
- * @param proto 协议号
- * @return 协议名称字符串
- */
-const char *stats_ipproto_name(uint8_t proto);
-
-/**
- * @brief 销毁统计上下文，释放哈希表内存
+ * @brief 销毁统计上下文,释放内存
  * @param ctx 统计上下文
  */
 void stats_destroy(stats_ctx_t *ctx);
