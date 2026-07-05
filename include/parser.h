@@ -39,17 +39,19 @@ void parse_ethernet(const uint8_t *packet, packet_info_t *pkt);
  * @brief 解析IPv4头部
  * @param packet 原始数据包
  * @param pkt    输出结构体
+ * @param cap_len 抓取长度(用于边界检查)
  * @return IP头部长度(字节), 0表示无效
  */
-int parse_ipv4(const uint8_t *packet, packet_info_t *pkt);
+int parse_ipv4(const uint8_t *packet, packet_info_t *pkt, uint32_t cap_len);
 
 /**
  * @brief 解析IPv6头部
  * @param packet 原始数据包(跳过以太网头后)
  * @param pkt    输出结构体
+ * @param cap_len 抓取长度(用于边界检查)
  * @return IPv6头部长度(固定40字节), 0表示无效
  */
-int parse_ipv6(const uint8_t *packet, packet_info_t *pkt);
+int parse_ipv6(const uint8_t *packet, packet_info_t *pkt, uint32_t cap_len);
 
 /**
  * @brief 解析TCP头部
