@@ -175,6 +175,26 @@ int stats_get_dst_ip_count(const stats_ctx_t *ctx)
     return count;
 }
 
+/* ===== 格式化输出辅助函数 ===== */
+
+static void ip_table_print(ip_stats_node_t *table[], const char *label, int count)
+{
+    printf("--------------------------------------------\n");
+    printf("%s (共 %d 个不同地址):\n", label, count);
+    printf("  %-46s %10s %12s\n", "IP地址", "包数", "字节数");
+
+    for (int i = 0; i < STATS_HASH_SIZE; i++) {
+        ip_stats_node_t *node = table[i];
+        while (node != NULL) {
+            printf("  %-46s %10lu %12lu\n",
+                   node->ip_addr,
+                   (unsigned long)node->packet_count,
+                   (unsigned long)node->byte_count);
+            node = node->next;
+        }
+    }
+}
+
 void stats_print(const stats_ctx_t *ctx)
 {
     if (ctx == NULL) return;
@@ -184,42 +204,66 @@ void stats_print(const stats_ctx_t *ctx)
     double elapsed = (now.tv_sec - ctx->start_time.tv_sec) +
                      (now.tv_usec - ctx->start_time.tv_usec) / 1000000.0;
 
+    const proto_stats_t *s = &ctx->proto_stats;
+
     printf("\n");
     printf("============================================\n");
     printf("           流量统计报告\n");
     printf("============================================\n");
-    printf("统计时长:     %.2f 秒\n", elapsed);
-    printf("总数据包:     %lu\n", ctx->proto_stats.total_packets);
-    printf("总字节数:     %lu\n", ctx->proto_stats.total_bytes);
+    printf("统计时长:   %.2f 秒\n", elapsed);
+    printf("总数据包:   %lu\n", (unsigned long)s->total_packets);
+    printf("总字节数:   %lu (%.2f KB / %.2f MB)\n",
+           (unsigned long)s->total_bytes,
+           s->total_bytes / 1024.0,
+           s->total_bytes / (1024.0 * 1024.0));
 
     if (elapsed > 0) {
-        printf("平均速率:     %.2f pps, %.2f KB/s\n",
-               ctx->proto_stats.total_packets / elapsed,
-               ctx->proto_stats.total_bytes / 1024.0 / elapsed);
-    }
-
-    printf("--------------------------------------------\n");
-    printf("协议分布:\n");
-    printf("  IPv4:     %lu\n", ctx->proto_stats.ipv4_count);
-    printf("  IPv6:     %lu\n", ctx->proto_stats.ipv6_count);
-    printf("  ARP:      %lu\n", ctx->proto_stats.arp_count);
-    printf("  其他:     %lu\n", ctx->proto_stats.other_count);
-    printf("  TCP:      %lu\n", ctx->proto_stats.tcp_count);
-    printf("  UDP:      %lu\n", ctx->proto_stats.udp_count);
-    printf("  ICMP:     %lu\n", ctx->proto_stats.icmp_count);
-
-    printf("--------------------------------------------\n");
-    printf("IP地址统计 (共 %d 个不同地址):\n", stats_get_ip_count(ctx));
-    printf("  %-46s %10s %12s\n", "IP地址", "包数", "字节数");
-
-    for (int i = 0; i < STATS_HASH_SIZE; i++) {
-        ip_stats_node_t *node = ctx->ip_table[i];
-        while (node != NULL) {
-            printf("  %-46s %10lu %12lu\n",
-                   node->ip_addr, node->packet_count, node->byte_count);
-            node = node->next;
+        printf("平均速率:   %.2f pps, %.2f KB/s\n",
+               s->total_packets / elapsed,
+               s->total_bytes / 1024.0 / elapsed);
+        if (s->total_packets > 0) {
+            printf("平均包长:   %.1f 字节\n",
+                   (double)s->total_bytes / s->total_packets);
         }
     }
+
+    /* 链路层协议统计 (包数 + 字节数 + 占比) */
+    printf("--------------------------------------------\n");
+    printf("链路层协议分布:\n");
+    printf("  %-8s %10s %7s  %12s %7s\n", "协议", "包数", "占比", "字节数", "占比");
+    printf("  %-8s %10lu %6.1f%%  %12lu %6.1f%%\n",
+           "IPv4", (unsigned long)s->ipv4_count, pct(s->ipv4_count, s->total_packets),
+           (unsigned long)s->ipv4_bytes, pct(s->ipv4_bytes, s->total_bytes));
+    printf("  %-8s %10lu %6.1f%%  %12lu %6.1f%%\n",
+           "IPv6", (unsigned long)s->ipv6_count, pct(s->ipv6_count, s->total_packets),
+           (unsigned long)s->ipv6_bytes, pct(s->ipv6_bytes, s->total_bytes));
+    printf("  %-8s %10lu %6.1f%%  %12lu %6.1f%%\n",
+           "ARP",  (unsigned long)s->arp_count,  pct(s->arp_count, s->total_packets),
+           (unsigned long)s->arp_bytes,  pct(s->arp_bytes, s->total_bytes));
+    printf("  %-8s %10lu %6.1f%%  %12lu %6.1f%%\n",
+           "Other", (unsigned long)s->other_count, pct(s->other_count, s->total_packets),
+           (unsigned long)s->other_bytes, pct(s->other_bytes, s->total_bytes));
+
+    /* 传输层协议统计 (包数 + 字节数 + 占比) */
+    printf("--------------------------------------------\n");
+    printf("传输层协议分布:\n");
+    printf("  %-8s %10s %7s  %12s %7s\n", "协议", "包数", "占比", "字节数", "占比");
+    printf("  %-8s %10lu %6.1f%%  %12lu %6.1f%%\n",
+           "TCP",  (unsigned long)s->tcp_count,  pct(s->tcp_count, s->total_packets),
+           (unsigned long)s->tcp_bytes,  pct(s->tcp_bytes, s->total_bytes));
+    printf("  %-8s %10lu %6.1f%%  %12lu %6.1f%%\n",
+           "UDP",  (unsigned long)s->udp_count,  pct(s->udp_count, s->total_packets),
+           (unsigned long)s->udp_bytes,  pct(s->udp_bytes, s->total_bytes));
+    printf("  %-8s %10lu %6.1f%%  %12lu %6.1f%%\n",
+           "ICMP", (unsigned long)s->icmp_count, pct(s->icmp_count, s->total_packets),
+           (unsigned long)s->icmp_bytes, pct(s->icmp_bytes, s->total_bytes));
+
+    /* 源 IP 地址维度统计 */
+    ip_table_print(ctx->ip_table, "源IP地址统计", stats_get_ip_count(ctx));
+
+    /* 目的 IP 地址维度统计 */
+    ip_table_print(ctx->dst_ip_table, "目的IP地址统计", stats_get_dst_ip_count(ctx));
+
     printf("============================================\n\n");
 }
 
@@ -247,17 +291,23 @@ void stats_print_brief(const stats_ctx_t *ctx)
     fflush(stdout);
 }
 
-void stats_destroy(stats_ctx_t *ctx)
+static void ip_table_destroy(ip_stats_node_t *table[])
 {
-    if (ctx == NULL) return;
-
     for (int i = 0; i < STATS_HASH_SIZE; i++) {
-        ip_stats_node_t *node = ctx->ip_table[i];
+        ip_stats_node_t *node = table[i];
         while (node != NULL) {
             ip_stats_node_t *tmp = node;
             node = node->next;
             free(tmp);
         }
-        ctx->ip_table[i] = NULL;
+        table[i] = NULL;
     }
+}
+
+void stats_destroy(stats_ctx_t *ctx)
+{
+    if (ctx == NULL) return;
+
+    ip_table_destroy(ctx->ip_table);
+    ip_table_destroy(ctx->dst_ip_table);
 }
