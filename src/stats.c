@@ -53,6 +53,36 @@ static void ip_table_update(ip_stats_node_t *table[], const char *ip_str, uint32
     table[idx] = node;
 }
 
+/* ===== 协议名称映射 ===== */
+
+const char *stats_ethertype_name(uint16_t eth_type)
+{
+    switch (eth_type) {
+        case ETHERTYPE_IPV4: return "IPv4";
+        case ETHERTYPE_IPV6: return "IPv6";
+        case ETHERTYPE_ARP:  return "ARP";
+        default:             return "Other";
+    }
+}
+
+const char *stats_ipproto_name(uint8_t proto)
+{
+    switch (proto) {
+        case IPPROTO_TCP:  return "TCP";
+        case IPPROTO_UDP:  return "UDP";
+        case IPPROTO_ICMP: return "ICMP";
+        default:           return "Other";
+    }
+}
+
+/* ===== 占比计算 ===== */
+
+static double pct(uint64_t part, uint64_t total)
+{
+    if (total == 0) return 0.0;
+    return (double)part * 100.0 / (double)total;
+}
+
 void stats_init(stats_ctx_t *ctx)
 {
     if (ctx == NULL) return;
