@@ -1,14 +1,17 @@
 /**
  * @file    pcap_io.c
- * @brief   PCAP文件读写实现 (Day6)
+ * @brief   PCAP文件读写实现
  *
- * 写入: pcap_dump_open → pcap_dump → pcap_dump_close
- * 读取: pcap_open_offline → pcap_loop → pcap_close (后续追加)
+ * 写入功能: pcap_dump_open → pcap_dump → pcap_dump_close
+ * 离线读取: pcap_open_offline → pcap_loop → pcap_close
+ *   - 支持BPF过滤表达式 (通过filter模块)
+ *   - 过滤器资源使用后正确释放
  *
  * 参考: libpcap官方API文档
  */
 
 #include "pcap_io.h"
+#include "filter.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -84,19 +87,16 @@ int pcap_replay_loop(const char *filename, const char *filter_str,
         return -1;
     }
 
-    /* 设置过滤器(如果指定) */
+    /* 设置过滤器(如果指定) - 使用filter模块统一接口 */
     struct bpf_program fp;
     int has_filter = 0;
     if (filter_str != NULL) {
         bpf_u_int32 netmask = 0;  /* 离线文件用0作为netmask */
-        if (pcap_compile(handle, &fp, filter_str, 1, netmask) == 0) {
-            if (pcap_setfilter(handle, &fp) == 0) {
-                has_filter = 1;
-            } else {
-                fprintf(stderr, "[pcap_io] 设置过滤器失败: %s\n", pcap_geterr(handle));
-            }
+        if (filter_compile(handle, &fp, filter_str, netmask) == 0) {
+            filter_apply(handle, &fp);
+            has_filter = 1;
         } else {
-            fprintf(stderr, "[pcap_io] 编译过滤器失败: %s\n", pcap_geterr(handle));
+            fprintf(stderr, "[pcap_io] 过滤器设置失败, 将读取所有包\n");
         }
     }
 
@@ -110,7 +110,7 @@ int pcap_replay_loop(const char *filename, const char *filter_str,
 
     /* 清理 */
     if (has_filter) {
-        pcap_freecode(&fp);
+        filter_free(&fp);
     }
     pcap_close(handle);
     printf("[pcap_io] 回放结束\n");
