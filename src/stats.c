@@ -12,7 +12,7 @@
 #include <string.h>
 #include <sys/time.h>
 
-/* 简单字符串哈希函数 */
+/* 简单字符串哈希函数 (djb2 算法) */
 static unsigned int hash_ip(const char *ip_str)
 {
     unsigned int hash = 5381;
@@ -20,6 +20,37 @@ static unsigned int hash_ip(const char *ip_str)
         hash = ((hash << 5) + hash) + *ip_str++;
     }
     return hash % STATS_HASH_SIZE;
+}
+
+/**
+ * @brief 在哈希表中更新指定 IP 的统计 (内部辅助函数)
+ *
+ * 查找 IP 节点，存在则累加，不存在则新建 (头插法)。
+ */
+static void ip_table_update(ip_stats_node_t *table[], const char *ip_str, uint32_t len)
+{
+    if (ip_str == NULL || ip_str[0] == '\0') return;
+
+    unsigned int idx = hash_ip(ip_str);
+    ip_stats_node_t *node = table[idx];
+
+    while (node != NULL) {
+        if (strcmp(node->ip_addr, ip_str) == 0) {
+            node->packet_count++;
+            node->byte_count += len;
+            return;
+        }
+        node = node->next;
+    }
+
+    node = (ip_stats_node_t *)malloc(sizeof(ip_stats_node_t));
+    if (node == NULL) return;
+    strncpy(node->ip_addr, ip_str, IP_STR_LEN - 1);
+    node->ip_addr[IP_STR_LEN - 1] = '\0';
+    node->packet_count = 1;
+    node->byte_count = len;
+    node->next = table[idx];
+    table[idx] = node;
 }
 
 void stats_init(stats_ctx_t *ctx)
@@ -34,53 +65,56 @@ void stats_update(stats_ctx_t *ctx, const packet_info_t *pkt)
 {
     if (ctx == NULL || pkt == NULL) return;
 
-    /* 更新协议维度统计 */
-    ctx->proto_stats.total_packets++;
-    ctx->proto_stats.total_bytes += pkt->cap_len;
+    uint32_t len = pkt->cap_len;
 
+    /* 更新总计数 */
+    ctx->proto_stats.total_packets++;
+    ctx->proto_stats.total_bytes += len;
+
+    /* 按链路层协议类型统计包数和字节数 */
     switch (pkt->eth_type) {
-        case ETHERTYPE_IPV4: ctx->proto_stats.ipv4_count++; break;
-        case ETHERTYPE_IPV6: ctx->proto_stats.ipv6_count++; break;
-        case ETHERTYPE_ARP:  ctx->proto_stats.arp_count++;  break;
-        default:             ctx->proto_stats.other_count++; break;
+        case ETHERTYPE_IPV4:
+            ctx->proto_stats.ipv4_count++;
+            ctx->proto_stats.ipv4_bytes += len;
+            break;
+        case ETHERTYPE_IPV6:
+            ctx->proto_stats.ipv6_count++;
+            ctx->proto_stats.ipv6_bytes += len;
+            break;
+        case ETHERTYPE_ARP:
+            ctx->proto_stats.arp_count++;
+            ctx->proto_stats.arp_bytes += len;
+            break;
+        default:
+            ctx->proto_stats.other_count++;
+            ctx->proto_stats.other_bytes += len;
+            break;
     }
 
+    /* 按网络层协议号统计包数和字节数 */
     if (pkt->eth_type == ETHERTYPE_IPV4 || pkt->eth_type == ETHERTYPE_IPV6) {
         switch (pkt->ip_proto) {
-            case IPPROTO_TCP:  ctx->proto_stats.tcp_count++;  break;
-            case IPPROTO_UDP:  ctx->proto_stats.udp_count++;  break;
-            case IPPROTO_ICMP: ctx->proto_stats.icmp_count++; break;
+            case IPPROTO_TCP:
+                ctx->proto_stats.tcp_count++;
+                ctx->proto_stats.tcp_bytes += len;
+                break;
+            case IPPROTO_UDP:
+                ctx->proto_stats.udp_count++;
+                ctx->proto_stats.udp_bytes += len;
+                break;
+            case IPPROTO_ICMP:
+                ctx->proto_stats.icmp_count++;
+                ctx->proto_stats.icmp_bytes += len;
+                break;
             default: break;
         }
     }
 
-    /* 更新IP维度统计(仅IPv4/IPv6有IP地址) */
-    if (pkt->src_ip[0] != '\0') {
-        unsigned int idx = hash_ip(pkt->src_ip);
-        ip_stats_node_t *node = ctx->ip_table[idx];
+    /* 按源 IP 哈希聚合统计 */
+    ip_table_update(ctx->ip_table, pkt->src_ip, len);
 
-        /* 查找是否已存在 */
-        while (node != NULL) {
-            if (strcmp(node->ip_addr, pkt->src_ip) == 0) {
-                node->packet_count++;
-                node->byte_count += pkt->cap_len;
-                break;
-            }
-            node = node->next;
-        }
-
-        /* 不存在则新建 */
-        if (node == NULL) {
-            node = (ip_stats_node_t *)malloc(sizeof(ip_stats_node_t));
-            if (node == NULL) return;
-            strncpy(node->ip_addr, pkt->src_ip, IP_STR_LEN - 1);
-            node->ip_addr[IP_STR_LEN - 1] = '\0';
-            node->packet_count = 1;
-            node->byte_count = pkt->cap_len;
-            node->next = ctx->ip_table[idx];
-            ctx->ip_table[idx] = node;
-        }
-    }
+    /* 按目的 IP 哈希聚合统计 */
+    ip_table_update(ctx->dst_ip_table, pkt->dst_ip, len);
 }
 
 int stats_get_ip_count(const stats_ctx_t *ctx)
@@ -89,6 +123,20 @@ int stats_get_ip_count(const stats_ctx_t *ctx)
     int count = 0;
     for (int i = 0; i < STATS_HASH_SIZE; i++) {
         ip_stats_node_t *node = ctx->ip_table[i];
+        while (node != NULL) {
+            count++;
+            node = node->next;
+        }
+    }
+    return count;
+}
+
+int stats_get_dst_ip_count(const stats_ctx_t *ctx)
+{
+    if (ctx == NULL) return 0;
+    int count = 0;
+    for (int i = 0; i < STATS_HASH_SIZE; i++) {
+        ip_stats_node_t *node = ctx->dst_ip_table[i];
         while (node != NULL) {
             count++;
             node = node->next;
