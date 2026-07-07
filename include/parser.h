@@ -115,7 +115,7 @@ void http_flow_destroy(void);
  * @brief 处理HTTP数据包，进行请求/响应配对
  * @param pkt 解析后的数据包(需已解析IP/TCP层)
  */
-void http_flow_process(packet_info_t *pkt);
+void http_flow_process(const packet_info_t *pkt);
 
 /**
  * @brief 打印所有已配对的HTTP请求/响应
