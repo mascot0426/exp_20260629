@@ -419,7 +419,7 @@ void http_flow_destroy(void)
     g_http_pair_count = 0;
 }
 
-void http_flow_process(packet_info_t *pkt)
+void http_flow_process(const packet_info_t *pkt)
 {
     if (pkt == NULL || pkt->ip_proto != IPPROTO_TCP) return;
     if (pkt->src_port != 80 && pkt->dst_port != 80) return;
