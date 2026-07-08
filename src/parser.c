@@ -635,11 +635,11 @@ void packet_print(const packet_info_t *pkt)
         return;
     }
 
-    char src_mac[18], dst_mac[18];
+    char src_mac[MAC_STR_LEN], dst_mac[MAC_STR_LEN];
     mac_to_string(pkt->src_mac, src_mac, sizeof(src_mac));
     mac_to_string(pkt->dst_mac, dst_mac, sizeof(dst_mac));
 
-    char flags_str[32] = "";
+    char flags_str[TCP_FLAGS_STR_LEN] = "";
     if (pkt->tcp_flags) {
         tcp_flags_to_string(pkt->tcp_flags, flags_str, sizeof(flags_str));
     }
