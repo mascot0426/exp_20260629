@@ -69,6 +69,12 @@
 /* HTTP请求/响应最大内容长度 */
 #define HTTP_CONTENT_MAX  256
 
+/* MAC地址字符串长度 (XX:XX:XX:XX:XX:XX + null = 18) */
+#define MAC_STR_LEN       18
+
+/* TCP标志位字符串最大长度 (SYN ACK FIN RST PSH URG + null) */
+#define TCP_FLAGS_STR_LEN 32
+
 /* ======================== HTTP流跟踪结构 ======================== */
 
 /**
